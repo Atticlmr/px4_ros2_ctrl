@@ -1,0 +1,37 @@
+name: Build Foxy (Ubuntu 20.04)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ROS 2
+        run: |
+          sudo apt update
+          sudo apt install -y curl
+          curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=$(dpkg --print-architecture)] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" > /etc/apt/sources.list.d/ros2.list'
+          sudo apt update
+          sudo apt install -y ros-foxy-ros-base python3-colcon-common-extensions libeigen3-dev
+          echo "source /opt/ros/foxy/setup.bash" >> $GITHUB_ENV
+      - name: Configure workspace
+        run: |
+          mkdir -p ~/colcon_ws/src
+          cd ~/colcon_ws
+          ln -s ${GITHUB_WORKSPACE} src/px4_ros2_ctrl
+          git clone https://github.com/PX4/px4_msgs.git -b main src/px4_msgs
+      - name: Build px4_msgs
+        run: |
+          source /opt/ros/foxy/setup.bash
+          cd ~/colcon_ws
+          colcon build --packages-select px4_msgs --cmake-args -DCMAKE_BUILD_TYPE=RELWITHDEBINFO --symlink-install
+      - name: Build px4_ros2_ctrl
+        run: |
+          source /opt/ros/foxy/setup.bash
+          cd ~/colcon_ws
+          colcon build --packages-select px4_ros2_ctrl --cmake-args -DCMAKE_BUILD_TYPE=RELWITHDEBINFO --symlink-install
