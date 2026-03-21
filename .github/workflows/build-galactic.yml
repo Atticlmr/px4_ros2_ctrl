@@ -10,15 +10,13 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install ROS 2
+      - uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: galactic
+      - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y curl
-          curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | sudo apt-key add -
-          sudo sh -c 'echo "deb [arch=$(dpkg --print-architecture)] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" > /etc/apt/sources.list.d/ros2.list'
-          sudo apt update
-          sudo apt install -y ros-galactic-ros-base python3-colcon-common-extensions libeigen3-dev
-          echo "source /opt/ros/galactic/setup.bash" >> $GITHUB_ENV
+          sudo apt install -y libeigen3-dev
       - name: Configure workspace
         run: |
           mkdir -p ~/colcon_ws/src
