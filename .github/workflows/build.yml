@@ -5,28 +5,35 @@ on:
     branches:
       - master
 
-defaults:
-  run:
-    shell: bash
-
 jobs:
   build_and_test:
     name: "ROS 2 ${{ matrix.ros2_distro }}"
     runs-on: ubuntu-22.04
-    container: px4io/px4-dev-ros2-${{ matrix.ros2_distro }}:latest
     strategy:
       fail-fast: false
       matrix:
         ros2_distro: [foxy, galactic, humble, rolling]
     steps:
       - uses: actions/checkout@v4
+      - name: Install ROS 2
+        run: |
+          sudo apt update
+          sudo apt install -y curl
+          curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=$(dpkg --print-architecture)] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" > /etc/apt/sources.list.d/ros2.list'
+          sudo apt update
+          sudo apt install -y ros-${{ matrix.ros2_distro }}-ros-base python3-colcon-common-extensions
+          echo "source /opt/ros/${{ matrix.ros2_distro }}/setup.bash" >> $GITHUB_ENV
       - name: Configure workspace
         run: |
-          unset ROS_DISTRO
           mkdir -p ~/colcon_ws/src
           cd ~/colcon_ws
           ln -s ${GITHUB_WORKSPACE} src/px4_ros2_ctrl
           git clone https://github.com/PX4/px4_msgs.git -b main src/px4_msgs
+      - name: Install dependencies
+        run: |
+          source /opt/ros/${{ matrix.ros2_distro }}/setup.bash
+          sudo apt install -y libeigen3-dev
       - name: Build px4_msgs
         run: |
           source /opt/ros/${{ matrix.ros2_distro }}/setup.bash
