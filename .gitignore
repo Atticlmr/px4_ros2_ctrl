@@ -1,2 +1,23 @@
+# Build artifacts
 build/
-scripts/__pycache__
+install/
+log/
+
+# Python
+*.pyc
+__pycache__/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# C++ linting
+.clang-format
+.clang-tidy
+
+# OS
+.DS_Store
+Thumbs.db
