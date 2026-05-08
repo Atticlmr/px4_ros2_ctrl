@@ -25,6 +25,7 @@ find_package(px4_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(rclpy REQUIRED)
+find_package(std_srvs REQUIRED)
 
 #################
 # Setup targets #
@@ -38,6 +39,13 @@ ament_target_dependencies(frame_transforms Eigen3 geometry_msgs sensor_msgs)
 target_include_directories(frame_transforms PUBLIC
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/${PROJECT_NAME}>
 	$<INSTALL_INTERFACE:include/${PROJECT_NAME}>
+)
+
+add_library(px4_output_adapter SHARED src/lib/px4_output_adapter.cpp)
+ament_target_dependencies(px4_output_adapter rclcpp px4_msgs)
+target_include_directories(px4_output_adapter PUBLIC
+	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+	$<INSTALL_INTERFACE:include>
 )
 
 
@@ -68,7 +76,8 @@ install(TARGETS offboard_control_srv DESTINATION lib/${PROJECT_NAME})
 
 # fsm/fsm_node
 add_executable(fsm_node src/fsm/fsm_node.cpp)
-ament_target_dependencies(fsm_node rclcpp px4_msgs)
+ament_target_dependencies(fsm_node rclcpp px4_msgs std_srvs)
+target_link_libraries(fsm_node px4_output_adapter)
 install(TARGETS fsm_node DESTINATION lib/${PROJECT_NAME})
 
 # position controller
@@ -83,18 +92,25 @@ install(TARGETS position_controller DESTINATION lib/${PROJECT_NAME})
 ############
 
 # Export information to downstream packages
-ament_export_dependencies(ament_cmake rclcpp rosidl_default_runtime eigen3_cmake_module Eigen3 px4_msgs geometry_msgs sensor_msgs)
+ament_export_dependencies(ament_cmake rclcpp rosidl_default_runtime eigen3_cmake_module Eigen3 px4_msgs geometry_msgs sensor_msgs std_srvs)
 
 ament_export_targets(export_frame_transforms HAS_LIBRARY_TARGET)
 
 ament_export_include_directories(include)
-ament_export_libraries(frame_transforms)
+ament_export_libraries(frame_transforms px4_output_adapter)
 
 # Install header files
 install(DIRECTORY include/${PROJECT_NAME}/ DESTINATION include/${PROJECT_NAME})
 
 install(TARGETS frame_transforms
 	EXPORT export_frame_transforms
+	ARCHIVE DESTINATION lib
+	LIBRARY DESTINATION lib
+	RUNTIME DESTINATION bin
+	INCLUDES DESTINATION include
+)
+
+install(TARGETS px4_output_adapter
 	ARCHIVE DESTINATION lib
 	LIBRARY DESTINATION lib
 	RUNTIME DESTINATION bin

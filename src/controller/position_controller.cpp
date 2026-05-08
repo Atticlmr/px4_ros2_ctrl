@@ -1,3 +1,5 @@
+// Copyright 2026 px4_ros2_ctrl contributors
+
   #include <rclcpp/rclcpp.hpp>
   #include <px4_msgs/msg/trajectory_setpoint.hpp>
   #include <px4_msgs/msg/vehicle_local_position.hpp>
@@ -9,9 +11,9 @@
   public:
       PositionControllerSimple() : Node("position_controller_simple")
       {
-          // 发布：给FSM的目标点（不是直接给PX4！）
+          // 发布统一控制输出，PX4 topic 由 FSM/Px4OutputAdapter 负责。
           cmd_pub_ = this->create_publisher<px4_msgs::msg::TrajectorySetpoint>(
-              "/controller/position_cmd", 10);
+              "/controller/position/output", 10);
 
           // 订阅：当前位置（用于判断到达）
           pos_sub_ = this->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
@@ -37,7 +39,7 @@
           target_index_ = 0;
 
           RCLCPP_INFO(get_logger(), "Position controller started");
-          RCLCPP_INFO(get_logger(), "Publishing to /controller/position_cmd");
+          RCLCPP_INFO(get_logger(), "Publishing POSITION output to /controller/position/output");
       }
 
   private:
