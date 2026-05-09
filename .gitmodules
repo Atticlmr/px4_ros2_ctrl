@@ -1,0 +1,6 @@
+[submodule "third_party/casadi"]
+	path = third_party/casadi
+	url = https://github.com/Atticlmr/casadi.git
+[submodule "third_party/acados"]
+	path = third_party/acados
+	url = https://github.com/Atticlmr/acados.git
