@@ -204,6 +204,88 @@ When adding ATTITUDE or BODY_RATE control, also extend `Px4OutputAdapter` to pub
 the matching PX4 message type, such as `VehicleAttitudeSetpoint` or
 `VehicleRatesSetpoint`.
 
+## Thrust Calibration Recorder
+
+The package provides a ROS 2 C++ equivalent of the legacy `thrust_calibrate.py`
+recorder:
+
+```bash
+ros2 run px4_ros2_ctrl thrust_calibration_node
+```
+
+This node does not command the vehicle. It records battery voltage and the currently
+published thrust command, averages them over a configurable time window, and appends
+the result to a CSV file.
+
+Default inputs:
+
+- Battery voltage: `/fmu/out/battery_status`
+- Thrust command: `/fmu/in/vehicle_attitude_setpoint`
+- Compatibility trigger: `/traj_start_trigger`
+
+Start recording:
+
+```bash
+ros2 service call /thrust_calibration_node/start std_srvs/srv/Trigger
+```
+
+Stop and save:
+
+```bash
+ros2 service call /thrust_calibration_node/stop std_srvs/srv/Trigger
+```
+
+Clear buffered data:
+
+```bash
+ros2 service call /thrust_calibration_node/reset std_srvs/srv/Trigger
+```
+
+Useful parameters:
+
+```bash
+ros2 run px4_ros2_ctrl thrust_calibration_node --ros-args \
+  -p output_file:=/tmp/thrust_calibration.csv \
+  -p time_interval:=1.0 \
+  -p min_battery_voltage:=13.2 \
+  -p mass_kg:=1.0
+```
+
+For multicopters using `VehicleAttitudeSetpoint`, PX4 stores normalized thrust in
+`thrust_body[2]` and the command is usually negative in body FRD. The recorder uses
+`thrust_axis:=2` and `thrust_sign:=-1.0` by default so saved commands are positive.
+
+If your controller publishes `VehicleThrustSetpoint` instead, run:
+
+```bash
+ros2 run px4_ros2_ctrl thrust_calibration_node --ros-args \
+  -p use_thrust_setpoint_topic:=true
+```
+
+Fit voltage compensation parameters from the recorded CSV:
+
+```bash
+ros2 run px4_ros2_ctrl fit_thrust_calibration.py /tmp/thrust_calibration.csv
+```
+
+The default fitted model is:
+
+```text
+command = hover_command * (nominal_voltage / voltage) ^ exponent
+```
+
+The script prints JSON with:
+
+- `hover_command`: normalized thrust command at `nominal_voltage`
+- `voltage_exponent`: voltage compensation strength
+- `newtons_per_normalized_command_at_nominal_voltage`: approximate force mapping
+  if `mass_kg` is available
+- `rmse` and `r2`: fit quality indicators
+
+This fit assumes the recorded samples are hover or near-hover points, so average
+required thrust is approximately `mass * 9.80665`. For a full dynamic thrust model,
+record acceleration as well as voltage and command.
+
 ## Notes For Real Flight
 
 Validate in SITL before real hardware. For real flight, verify:

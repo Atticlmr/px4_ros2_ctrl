@@ -86,6 +86,11 @@ add_executable(position_controller src/controller/position_controller.cpp)
 ament_target_dependencies(position_controller rclcpp px4_msgs)
 install(TARGETS position_controller DESTINATION lib/${PROJECT_NAME})
 
+# calibration/thrust_calibration_node
+add_executable(thrust_calibration_node src/calibration/thrust_calibration_node.cpp)
+ament_target_dependencies(thrust_calibration_node rclcpp px4_msgs geometry_msgs std_srvs)
+install(TARGETS thrust_calibration_node DESTINATION lib/${PROJECT_NAME})
+
 
 ############
 # Install ##
@@ -119,6 +124,12 @@ install(TARGETS px4_output_adapter
 
 # Install launch files.
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME}/)
+
+# Install scripts.
+install(PROGRAMS
+	scripts/fit_thrust_calibration.py
+	DESTINATION lib/${PROJECT_NAME}
+)
 
 # Install tests
 install(DIRECTORY test DESTINATION share/${PROJECT_NAME}/)
