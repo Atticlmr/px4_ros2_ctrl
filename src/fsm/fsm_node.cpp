@@ -47,6 +47,11 @@ FSMNode::FSMNode() : Node("fsm_node")
         rclcpp::QoS(10),
         std::bind(&FSMNode::positionOutputCallback, this, std::placeholders::_1));
 
+    body_rate_output_sub_ = create_subscription<px4_msgs::msg::VehicleRatesSetpoint>(
+        "/controller/body_rate/output",
+        rclcpp::QoS(10),
+        std::bind(&FSMNode::bodyRateOutputCallback, this, std::placeholders::_1));
+
     start_offboard_srv_ = create_service<std_srvs::srv::Trigger>(
         "~/start_offboard",
         std::bind(
@@ -121,6 +126,10 @@ void FSMNode::manualControlCallback(const px4_msgs::msg::ManualControlSetpoint::
 
 void FSMNode::positionOutputCallback(const px4_msgs::msg::TrajectorySetpoint::SharedPtr msg)
 {
+    if (active_controller_ != "position") {
+        return;
+    }
+
     ControllerOutput output;
     output.level = ControlLevel::POSITION;
     output.stamp = now();
@@ -131,6 +140,27 @@ void FSMNode::positionOutputCallback(const px4_msgs::msg::TrajectorySetpoint::Sh
     output.acceleration = msg->acceleration;
     output.yaw = msg->yaw;
     output.yawspeed = msg->yawspeed;
+
+    controller_output_ = output;
+    active_control_level_ = output.level;
+    has_controller_output_ = true;
+    last_controller_output_time_ = now();
+}
+
+void FSMNode::bodyRateOutputCallback(const px4_msgs::msg::VehicleRatesSetpoint::SharedPtr msg)
+{
+    if (active_controller_ != "body_rate_nmpc") {
+        return;
+    }
+
+    ControllerOutput output;
+    output.level = ControlLevel::BODY_RATE;
+    output.stamp = now();
+    output.valid = true;
+    output.controller_name = "body_rate_nmpc";
+    output.body_rate = {msg->roll, msg->pitch, msg->yaw};
+    output.thrust_body = msg->thrust_body;
+    output.reset_rate_integral = msg->reset_integral;
 
     controller_output_ = output;
     active_control_level_ = output.level;

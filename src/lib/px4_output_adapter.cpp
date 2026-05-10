@@ -11,6 +11,8 @@ Px4OutputAdapter::Px4OutputAdapter(rclcpp::Node *node) : node_(node)
         "/fmu/in/offboard_control_mode", 10);
     trajectory_pub_ = node_->create_publisher<px4_msgs::msg::TrajectorySetpoint>(
         "/fmu/in/trajectory_setpoint", 10);
+    rates_pub_ = node_->create_publisher<px4_msgs::msg::VehicleRatesSetpoint>(
+        "/fmu/in/vehicle_rates_setpoint", 10);
     vehicle_cmd_pub_ = node_->create_publisher<px4_msgs::msg::VehicleCommand>(
         "/fmu/in/vehicle_command", 10);
 }
@@ -46,6 +48,18 @@ void Px4OutputAdapter::publishSetpoint(const ControllerOutput &output)
         msg.yaw = output.yaw;
         msg.yawspeed = output.yawspeed;
         trajectory_pub_->publish(msg);
+        return;
+    }
+
+    if (output.level == ControlLevel::BODY_RATE) {
+        px4_msgs::msg::VehicleRatesSetpoint msg;
+        msg.timestamp = timestampMicros();
+        msg.roll = output.body_rate[0];
+        msg.pitch = output.body_rate[1];
+        msg.yaw = output.body_rate[2];
+        msg.thrust_body = output.thrust_body;
+        msg.reset_integral = output.reset_rate_integral;
+        rates_pub_->publish(msg);
         return;
     }
 

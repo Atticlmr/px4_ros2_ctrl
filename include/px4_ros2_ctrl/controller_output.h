@@ -36,6 +36,10 @@ struct ControllerOutput
     float yaw = std::numeric_limits<float>::quiet_NaN();
     float yawspeed = std::numeric_limits<float>::quiet_NaN();
 
+    std::array<float, 3> body_rate = nanVector();
+    std::array<float, 3> thrust_body = nanVector();
+    bool reset_rate_integral = false;
+
     static std::array<float, 3> nanVector()
     {
         const auto nan = std::numeric_limits<float>::quiet_NaN();

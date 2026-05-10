@@ -17,6 +17,7 @@ controller node
   -> Px4OutputAdapter
   -> /fmu/in/offboard_control_mode
   -> /fmu/in/trajectory_setpoint
+  -> /fmu/in/vehicle_rates_setpoint
   -> /fmu/in/vehicle_command
 ```
 
@@ -30,6 +31,9 @@ Main components:
 - `position_controller`: simple demo controller. It publishes POSITION output to
   `/controller/position/output`; it does not publish PX4 Offboard heartbeat or
   vehicle commands.
+- `body_rate_nmpc_controller.py`: acados/CasADi BODY_RATE + THRUST NMPC demo for
+  PX4 SITL. It publishes `/controller/body_rate/output`; the FSM and adapter decide
+  whether that output reaches PX4.
 - `frame_transforms`: helper library for ROS/PX4 frame conversions.
 
 The package also keeps several PX4 example listener/offboard nodes under `src/lib`.
@@ -175,6 +179,191 @@ Parameter meaning:
   command. PX4 requires more than 1 second of valid Offboard proof-of-life before
   entering Offboard.
 
+## BODY_RATE + THRUST NMPC Demo
+
+The NMPC demo is built around the PX4 Gazebo x500 SITL model:
+
+- airframe: `/home/li/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500`
+- model: `/home/li/PX4-Autopilot/Tools/simulation/gz/models/x500/model.sdf`
+- base inertial model: `/home/li/PX4-Autopilot/Tools/simulation/gz/models/x500_base/model.sdf`
+
+The default model uses mass `2.0 kg`, inertia approximately
+`Ixx=0.0216667`, `Iyy=0.0216667`, `Izz=0.04`, and PX4 hover thrust
+`MPC_THR_HOVER=0.60`.
+
+Generate the acados C solver from CasADi model code:
+
+```bash
+cd /home/li/Desktop/ws_ros2/src/px4_ros2_ctrl
+PYTHONPATH=$PWD/third_party/acados/interfaces/acados_template:$PWD/third_party/casadi/build/lib \
+LD_LIBRARY_PATH=$PWD/third_party/acados/lib:$PWD/third_party/casadi/build/lib \
+ACADOS_SOURCE_DIR=$PWD/third_party/acados \
+./scripts/generate_body_rate_nmpc_solver.py
+```
+
+Smoke-test the generated solver:
+
+```bash
+./scripts/test_body_rate_nmpc_solver.py
+```
+
+Build from the workspace root:
+
+```bash
+cd /home/li/Desktop/ws_ros2
+colcon build --packages-select px4_ros2_ctrl
+source install/setup.bash
+```
+
+Start PX4 SITL and the DDS bridge first. Then run the NMPC FSM demo:
+
+```bash
+ros2 launch px4_ros2_ctrl fsm_body_rate_nmpc.launch.py
+```
+
+Request Offboard after PX4 and the estimator are healthy:
+
+```bash
+ros2 service call /fsm_node/start_offboard std_srvs/srv/Trigger
+```
+
+The NMPC node subscribes to:
+
+```text
+/fmu/out/vehicle_odometry
+```
+
+The NMPC node publishes:
+
+```text
+/controller/body_rate/output
+```
+
+The FSM adapter publishes to PX4:
+
+```text
+/fmu/in/offboard_control_mode
+/fmu/in/vehicle_rates_setpoint
+/fmu/in/vehicle_command
+```
+
+This demo keeps PX4 responsible for rate-loop execution, mixer/control allocation,
+motor limits, arming, mode switching, and Offboard-loss behavior. The NMPC only
+computes body roll/pitch/yaw rates plus normalized body-FRD thrust.
+
+### NMPC Problem Formulation
+
+The runtime solve chain is:
+
+```text
+/fmu/out/vehicle_odometry
+  -> body_rate_nmpc_controller.py
+  -> acados generated C solver
+  -> /controller/body_rate/output
+  -> fsm_node
+  -> /fmu/in/vehicle_rates_setpoint
+```
+
+The NMPC state is:
+
+```text
+x = [
+  p_n, p_e, p_d,
+  v_n, v_e, v_d,
+  q_w, q_x, q_y, q_z
+]
+```
+
+This is the PX4 NED position, NED velocity, and Hamilton quaternion from body-FRD
+to NED.
+
+The NMPC control input is:
+
+```text
+u = [
+  roll_rate,
+  pitch_rate,
+  yaw_rate,
+  thrust
+]
+```
+
+The ROS output maps this to PX4 as:
+
+```text
+VehicleRatesSetpoint.roll = roll_rate
+VehicleRatesSetpoint.pitch = pitch_rate
+VehicleRatesSetpoint.yaw = yaw_rate
+VehicleRatesSetpoint.thrust_body = [0, 0, -thrust]
+```
+
+For PX4 multicopters, upward body-FRD thrust is represented by a negative
+`thrust_body[2]`.
+
+The simplified model is:
+
+```text
+p_dot = v
+v_dot = g_ned + R(q) * [0, 0, -mass * g * thrust / hover_thrust] / mass
+q_dot = 0.5 * q * [0, roll_rate, pitch_rate, yaw_rate]
+```
+
+The demo does not model motor lag, drag, torque allocation, or full rotational
+dynamics. That is intentional for a BODY_RATE + THRUST controller: PX4 still runs
+the rate controller, mixer/control allocation, and actuator limits.
+
+The OCP is:
+
+```text
+min sum_k || [x_k, u_k] - [x_ref, u_ref] ||_W^2
+  + || x_N - x_ref ||_W_e^2
+```
+
+Subject to:
+
+```text
+x_0 = current odometry state
+
+roll_rate  in [-3.0, 3.0] rad/s
+pitch_rate in [-3.0, 3.0] rad/s
+yaw_rate   in [-1.5, 1.5] rad/s
+thrust     in [0.10, 0.90]
+```
+
+Current solver settings:
+
+```text
+horizon steps: 20
+horizon time: 1.0 s
+dt: 0.05 s
+QP solver: PARTIAL_CONDENSING_HPIPM
+NLP solver: SQP_RTI
+integrator: ERK
+Hessian approximation: GAUSS_NEWTON
+```
+
+The demo reference is a square waypoint list:
+
+```text
+[0, 0, -2]
+[3, 0, -2]
+[3, 3, -2]
+[0, 3, -2]
+```
+
+Velocity reference is zero and yaw reference is zero. The controller switches to
+the next point when the current target is within `target_acceptance_radius_m`.
+
+Each control tick:
+
+1. Read the latest `VehicleOdometry` as `x0`.
+2. Build `x_ref` from the active target point and yaw reference.
+3. Set the first-stage equality constraint `lbx = ubx = x0`.
+4. Set all stage references `yref = [x_ref, u_ref]`.
+5. Solve with acados.
+6. Read the first control `u0`.
+7. Publish `u0` as `VehicleRatesSetpoint` on `/controller/body_rate/output`.
+
 ## Adding A New Controller
 
 Controllers should not publish `/fmu/in/*` topics directly. A controller should:
@@ -192,17 +381,19 @@ Currently implemented output path:
 - PX4 adapter output:
   - `/fmu/in/offboard_control_mode` with `position=true`
   - `/fmu/in/trajectory_setpoint`
+- BODY_RATE + thrust output via `px4_msgs/msg/VehicleRatesSetpoint`
+- Topic: `/controller/body_rate/output`
+- PX4 adapter output:
+  - `/fmu/in/offboard_control_mode` with `body_rate=true`
+  - `/fmu/in/vehicle_rates_setpoint`
 
 Planned extension points:
 
 - MPC velocity/acceleration output: `ControlLevel::VELOCITY` or
   `ControlLevel::ACCELERATION`
 - SO3 attitude output: `ControlLevel::ATTITUDE`
-- body-rate controller output: `ControlLevel::BODY_RATE`
-
-When adding ATTITUDE or BODY_RATE control, also extend `Px4OutputAdapter` to publish
-the matching PX4 message type, such as `VehicleAttitudeSetpoint` or
-`VehicleRatesSetpoint`.
+- direct thrust/torque output: `ControlLevel::ACTUATOR` or a later
+  `THRUST_AND_TORQUE` level
 
 ## Thrust Calibration Recorder
 

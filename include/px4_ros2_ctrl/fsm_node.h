@@ -13,6 +13,7 @@
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_control_mode.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
+#include <px4_msgs/msg/vehicle_rates_setpoint.hpp>
 
 #include "px4_ros2_ctrl/controller_output.h"
 #include "px4_ros2_ctrl/px4_output_adapter.h"
@@ -41,6 +42,7 @@ private:
     rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr local_position_sub_;
     rclcpp::Subscription<px4_msgs::msg::ManualControlSetpoint>::SharedPtr manual_control_sub_;
     rclcpp::Subscription<px4_msgs::msg::TrajectorySetpoint>::SharedPtr position_output_sub_;
+    rclcpp::Subscription<px4_msgs::msg::VehicleRatesSetpoint>::SharedPtr body_rate_output_sub_;
 
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr start_offboard_srv_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr stop_offboard_srv_;
@@ -82,6 +84,7 @@ private:
     void localPositionCallback(const px4_msgs::msg::VehicleLocalPosition::SharedPtr msg);
     void manualControlCallback(const px4_msgs::msg::ManualControlSetpoint::SharedPtr msg);
     void positionOutputCallback(const px4_msgs::msg::TrajectorySetpoint::SharedPtr msg);
+    void bodyRateOutputCallback(const px4_msgs::msg::VehicleRatesSetpoint::SharedPtr msg);
 
     void startOffboardCallback(
         const std::shared_ptr<std_srvs::srv::Trigger::Request> request,

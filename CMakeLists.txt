@@ -127,9 +127,16 @@ install(DIRECTORY launch DESTINATION share/${PROJECT_NAME}/)
 
 # Install scripts.
 install(PROGRAMS
+	scripts/body_rate_nmpc_controller.py
 	scripts/fit_thrust_calibration.py
+	scripts/generate_body_rate_nmpc_solver.py
+	scripts/test_body_rate_nmpc_solver.py
 	DESTINATION lib/${PROJECT_NAME}
 )
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated")
+	install(DIRECTORY generated DESTINATION share/${PROJECT_NAME}/)
+endif()
 
 # Install tests
 install(DIRECTORY test DESTINATION share/${PROJECT_NAME}/)
