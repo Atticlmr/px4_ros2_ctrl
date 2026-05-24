@@ -17,6 +17,10 @@ __pycache__/
 # C++ linting (tracking config files, ignoring build artifacts)
 .clang-tidy
 
+# Local third-party binary downloads
+third_party/_downloads/
+third_party/onnxruntime/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -18,6 +18,8 @@ controller node
   -> /fmu/in/offboard_control_mode
   -> /fmu/in/trajectory_setpoint
   -> /fmu/in/vehicle_rates_setpoint
+  -> /fmu/in/vehicle_thrust_setpoint
+  -> /fmu/in/vehicle_torque_setpoint
   -> /fmu/in/vehicle_command
 ```
 
@@ -34,6 +36,9 @@ Main components:
 - `body_rate_nmpc_controller.py`: acados/CasADi BODY_RATE + THRUST NMPC demo for
   PX4 SITL. It publishes `/controller/body_rate/output`; the FSM and adapter decide
   whether that output reaches PX4.
+- `rl_thrust_controller`: ONNX Runtime C++ inference node for a pure thrust RL
+  policy. It publishes `/controller/thrust/output`; it does not publish PX4 mode,
+  heartbeat, arming, or vehicle command topics.
 - `frame_transforms`: helper library for ROS/PX4 frame conversions.
 
 The package also keeps several PX4 example listener/offboard nodes under `src/lib`.
@@ -77,6 +82,8 @@ Recommended PX4-side setup:
 - PX4 `px4_msgs`
 - PX4 uXRCE-DDS bridge / Micro XRCE-DDS Agent
 - `rclcpp`, `std_srvs`, `geometry_msgs`, `sensor_msgs`, `Eigen3`
+- Optional for RL controller inference: repo-local ONNX Runtime C++ under
+  `third_party/onnxruntime`
 
 PX4 setup references:
 
@@ -364,6 +371,102 @@ Each control tick:
 6. Read the first control `u0`.
 7. Publish `u0` as `VehicleRatesSetpoint` on `/controller/body_rate/output`.
 
+## Pure Thrust RL Controller
+
+`rl_thrust_controller` is a minimal ONNX Runtime C++ inference node for policies
+that output normalized thrust only. It is intentionally kept behind the same FSM
+and adapter path as the other controllers:
+
+```text
+/fmu/out/vehicle_odometry
+  -> rl_thrust_controller
+  -> /controller/thrust/output
+  -> fsm_node
+  -> /fmu/in/offboard_control_mode
+  -> /fmu/in/vehicle_thrust_setpoint
+  -> /fmu/in/vehicle_torque_setpoint
+```
+
+The node subscribes to:
+
+```text
+/fmu/out/vehicle_odometry
+```
+
+The node publishes:
+
+```text
+/controller/thrust/output
+```
+
+The FSM adapter publishes to PX4:
+
+```text
+/fmu/in/offboard_control_mode
+/fmu/in/vehicle_thrust_setpoint
+/fmu/in/vehicle_torque_setpoint
+/fmu/in/vehicle_command
+```
+
+The default policy input is a float32 tensor with shape `[1, 10]`:
+
+```text
+[
+  p_n, p_e, p_d,
+  v_n, v_e, v_d,
+  q_w, q_x, q_y, q_z
+]
+```
+
+The policy output can be either:
+
+- `[1]`: scalar normalized thrust. The node clamps it to `thrust_min` and
+  `thrust_max`, then writes it to `VehicleThrustSetpoint.xyz[thrust_axis]` with
+  `thrust_sign`.
+- `[3]`: body-FRD thrust vector. The node clamps each element to `[-1, 1]` and
+  publishes it directly.
+
+Default scalar mapping:
+
+```text
+thrust_axis = 2
+thrust_sign = -1.0
+VehicleThrustSetpoint.xyz = [0, 0, -thrust]
+```
+
+Start PX4 SITL and the DDS bridge first. Then launch:
+
+```bash
+cd /home/li/Desktop/ws_ros2
+source install/setup.bash
+ros2 launch px4_ros2_ctrl fsm_rl_thrust.launch.py model_path:=/absolute/path/to/policy.onnx
+```
+
+Request Offboard after PX4 and estimator data are healthy:
+
+```bash
+ros2 service call /fsm_node/start_offboard std_srvs/srv/Trigger
+```
+
+Useful parameters:
+
+```bash
+ros2 launch px4_ros2_ctrl fsm_rl_thrust.launch.py \
+  model_path:=/absolute/path/to/policy.onnx \
+  thrust_min:=0.0 \
+  thrust_max:=0.9 \
+  thrust_axis:=2 \
+  thrust_sign:=-1.0
+```
+
+Safety note: a pure thrust controller does not control attitude, yaw, or body
+rates. For PX4 Offboard `thrust_and_torque`, this package publishes zero torque
+setpoints together with the thrust setpoint. That is useful for interface testing,
+vertical thrust experiments, or policies designed around another stabilizing layer,
+but it is not a complete multicopter flight controller by itself. Do not use this
+path on real hardware until the attitude/torque stabilization strategy is explicit
+and validated in SITL.
+
 ## Adding A New Controller
 
 Controllers should not publish `/fmu/in/*` topics directly. A controller should:
@@ -386,14 +489,19 @@ Currently implemented output path:
 - PX4 adapter output:
   - `/fmu/in/offboard_control_mode` with `body_rate=true`
   - `/fmu/in/vehicle_rates_setpoint`
+- Pure thrust output via `px4_msgs/msg/VehicleThrustSetpoint`
+- Topic: `/controller/thrust/output`
+- PX4 adapter output:
+  - `/fmu/in/offboard_control_mode` with `thrust_and_torque=true`
+  - `/fmu/in/vehicle_thrust_setpoint`
+  - `/fmu/in/vehicle_torque_setpoint` with zero torque
 
 Planned extension points:
 
 - MPC velocity/acceleration output: `ControlLevel::VELOCITY` or
   `ControlLevel::ACCELERATION`
 - SO3 attitude output: `ControlLevel::ATTITUDE`
-- direct thrust/torque output: `ControlLevel::ACTUATOR` or a later
-  `THRUST_AND_TORQUE` level
+- direct actuator output: `ControlLevel::ACTUATOR`
 
 ## Thrust Calibration Recorder
 
