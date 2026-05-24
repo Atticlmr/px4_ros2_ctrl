@@ -14,8 +14,7 @@ __pycache__/
 *.swp
 *.swo
 
-# C++ linting
-.clang-format
+# C++ linting (tracking config files, ignoring build artifacts)
 .clang-tidy
 
 # OS

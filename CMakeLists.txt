@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
 project(px4_ros2_ctrl)
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
 # Default to C99
 if(NOT CMAKE_C_STANDARD)
 	set(CMAKE_C_STANDARD 99)
@@ -26,6 +28,8 @@ find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(rclpy REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(Threads REQUIRED)
+find_package(ONNXRuntime REQUIRED)
 
 #################
 # Setup targets #
@@ -86,6 +90,22 @@ add_executable(position_controller src/controller/position_controller.cpp)
 ament_target_dependencies(position_controller rclcpp px4_msgs)
 install(TARGETS position_controller DESTINATION lib/${PROJECT_NAME})
 
+add_executable(mocap_udp_bridge src/localization/mocap_udp_bridge.cpp)
+target_compile_features(mocap_udp_bridge PRIVATE cxx_std_17)
+ament_target_dependencies(mocap_udp_bridge rclcpp px4_msgs Eigen3)
+target_link_libraries(mocap_udp_bridge Threads::Threads)
+install(TARGETS mocap_udp_bridge DESTINATION lib/${PROJECT_NAME})
+
+add_executable(rl_thrust_controller src/controller/rl_thrust_controller.cpp)
+target_compile_features(rl_thrust_controller PRIVATE cxx_std_17)
+ament_target_dependencies(rl_thrust_controller rclcpp px4_msgs)
+target_link_libraries(rl_thrust_controller ONNXRuntime::onnxruntime)
+set_target_properties(rl_thrust_controller PROPERTIES
+	BUILD_RPATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime/lib"
+	INSTALL_RPATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime/lib"
+)
+install(TARGETS rl_thrust_controller DESTINATION lib/${PROJECT_NAME})
+
 # calibration/thrust_calibration_node
 add_executable(thrust_calibration_node src/calibration/thrust_calibration_node.cpp)
 ament_target_dependencies(thrust_calibration_node rclcpp px4_msgs geometry_msgs std_srvs)
@@ -136,6 +156,10 @@ install(PROGRAMS
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated")
 	install(DIRECTORY generated DESTINATION share/${PROJECT_NAME}/)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models")
+	install(DIRECTORY models DESTINATION share/${PROJECT_NAME}/)
 endif()
 
 # Install tests
