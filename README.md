@@ -58,8 +58,8 @@ parameters such as `COM_OF_LOSS_T` and `COM_OBL_RC_ACT`.
 Important behavior:
 
 - Offboard is not started automatically. Call `start_offboard` explicitly.
-- Auto-arm is disabled by default. Set `allow_auto_arm:=true` only after bench and
-  SITL validation.
+- Auto-arm is disabled by default. Arm manually in QGroundControl/PX4 shell, or
+  set `allow_auto_arm:=true` only after bench and SITL validation.
 - Manual override is latched. If PX4 leaves Offboard or manual sticks move during
   Offboard, the FSM enters `MANUAL_OVERRIDE` and will not automatically re-enter
   Offboard.
@@ -135,6 +135,55 @@ The demo controller publishes a square trajectory as POSITION output on:
 
 The FSM publishes PX4 input topics only when Offboard is requested and safety checks
 pass.
+
+## FSM Runtime Logic
+
+`fsm_node` starts in `WAIT_FOR_PX4`. It subscribes to PX4 status topics,
+controller output topics, and manual-control input, but it does not publish PX4
+Offboard heartbeat or setpoints immediately after launch.
+
+The normal position-control startup flow is:
+
+```text
+launch fsm_position_control.launch.py
+  -> fsm_node starts
+  -> position_controller starts publishing /controller/position/output
+  -> FSM waits for PX4/local-position health
+  -> WAIT_FOR_PX4 -> STANDBY
+  -> user calls /fsm_node/start_offboard
+  -> STANDBY -> OFFBOARD_PREPARE
+  -> publish Offboard heartbeat and trajectory setpoint for offboard_prepare_s
+  -> send PX4 Offboard mode command
+  -> OFFBOARD_PREPARE -> OFFBOARD_REQUESTED
+  -> wait until PX4 reports Offboard enabled
+  -> OFFBOARD_REQUESTED -> OFFBOARD_ACTIVE
+  -> keep publishing heartbeat and setpoint at the FSM timer rate
+```
+
+The FSM only forwards the selected controller. For the default position launch,
+`active_controller` is `position`, so the FSM accepts `/controller/position/output`
+and ignores body-rate or thrust controller topics.
+
+Important state behavior:
+
+- `WAIT_FOR_PX4`: waits for fresh PX4 control-mode data and valid local position.
+- `STANDBY`: safe idle state. Controller output may be arriving, but nothing is
+  sent to PX4 until `start_offboard` is called.
+- `OFFBOARD_PREPARE`: publishes `/fmu/in/offboard_control_mode` and the current
+  setpoint before requesting PX4 Offboard mode.
+- `OFFBOARD_REQUESTED`: keeps publishing heartbeat/setpoint while waiting for PX4
+  to confirm Offboard mode.
+- `OFFBOARD_ACTIVE`: normal control state. The FSM continuously forwards fresh
+  controller output through `Px4OutputAdapter`.
+- `MANUAL_OVERRIDE`: latched manual takeover. The FSM stops normal Offboard output
+  and will not restart automatically.
+- `FAILSAFE`: controller/PX4/estimator timeout path. Normal Offboard output stops;
+  if `land_on_failsafe` is true, one PX4 land command is sent.
+
+Auto-arm is separate from Offboard start. With the default `allow_auto_arm: false`,
+you must arm manually before or during the Offboard procedure. If
+`allow_auto_arm: true`, the FSM sends an arm command when it sends the Offboard
+mode command.
 
 ## Start, Stop, And Reset Offboard
 
