@@ -40,6 +40,7 @@ FSMNode::FSMNode() : Node("fsm_node") {
   declare_parameter<double>("offboard_prepare_s", 1.1);
   declare_parameter<bool>("allow_auto_arm", false);
   declare_parameter<bool>("land_on_failsafe", false);
+  declare_parameter<bool>("debug/color_logs", log_style::stdoutSupportsColor());
 
   active_controller_ = get_parameter("active_controller").as_string();
   px4_timeout_s_ = get_parameter("px4_timeout_s").as_double();
@@ -48,6 +49,7 @@ FSMNode::FSMNode() : Node("fsm_node") {
   offboard_prepare_s_ = get_parameter("offboard_prepare_s").as_double();
   allow_auto_arm_ = get_parameter("allow_auto_arm").as_bool();
   land_on_failsafe_ = get_parameter("land_on_failsafe").as_bool();
+  color_logs_ = get_parameter("debug/color_logs").as_bool();
 
   px4_adapter_ = std::make_unique<Px4OutputAdapter>(this);
   // /fmu/out/ use best_effort() is enough
@@ -95,8 +97,9 @@ FSMNode::FSMNode() : Node("fsm_node") {
   control_timer_ =
     create_wall_timer(std::chrono::milliseconds(20), std::bind(&FSMNode::controlLoop, this));
 
-  RCLCPP_INFO(get_logger(), "FSM supervisor started with controller '%s'",
-              active_controller_.c_str());
+  const auto controller_name =
+    log_style::colorize(active_controller_, log_style::Color::kCyan, color_logs_);
+  RCLCPP_INFO(get_logger(), "FSM supervisor started with controller '%s'", controller_name.c_str());
   RCLCPP_INFO(get_logger(), "Call /fsm_node/start_offboard to request Offboard control");
 }
 
@@ -197,6 +200,9 @@ void FSMNode::startOffboardCallback(const std::shared_ptr<std_srvs::srv::Trigger
   }
 
   has_start_request_ = true;
+  RCLCPP_INFO(get_logger(), "%s",
+              log_style::colorize("start_offboard accepted", log_style::Color::kGreen, color_logs_)
+                .c_str());
   response->success = true;
   response->message = "Offboard start requested";
 }
@@ -207,6 +213,9 @@ void FSMNode::stopOffboardCallback(const std::shared_ptr<std_srvs::srv::Trigger:
   has_start_request_ = false;
   manual_override_latched_ = true;
   transitionTo(State::MANUAL_OVERRIDE, "stop_offboard service called");
+  RCLCPP_INFO(get_logger(), "%s",
+              log_style::colorize("stop_offboard accepted", log_style::Color::kRed, color_logs_)
+                .c_str());
   response->success = true;
   response->message = "Offboard stopped and manual override latched";
 }
@@ -219,13 +228,18 @@ void FSMNode::resetOverrideCallback(const std::shared_ptr<std_srvs::srv::Trigger
   if (state_ == State::MANUAL_OVERRIDE || state_ == State::FAILSAFE) {
     transitionTo(State::STANDBY, "manual override reset");
   }
+  RCLCPP_INFO(get_logger(), "%s",
+              log_style::colorize("reset_override accepted", log_style::Color::kGreen, color_logs_)
+                .c_str());
   response->success = true;
   response->message = "manual override reset; call start_offboard to resume";
 }
 
 void FSMNode::controlLoop() {
   if (state_ != previous_state_) {
-    RCLCPP_INFO(get_logger(), "FSM state: %s", stateName(state_));
+    const auto styled_state =
+      log_style::colorize(stateName(state_), stateLogColor(state_), color_logs_);
+    RCLCPP_INFO(get_logger(), "FSM state: %s", styled_state.c_str());
     previous_state_ = state_;
   }
 
@@ -310,7 +324,10 @@ void FSMNode::controlLoop() {
 void FSMNode::transitionTo(State next_state, const std::string& reason) {
   if (state_ == next_state) { return; }
 
-  RCLCPP_WARN(get_logger(), "FSM transition %s -> %s: %s", stateName(state_), stateName(next_state),
+  const auto old_state = log_style::colorize(stateName(state_), stateLogColor(state_), color_logs_);
+  const auto new_state =
+    log_style::colorize(stateName(next_state), stateLogColor(next_state), color_logs_);
+  RCLCPP_WARN(get_logger(), "FSM transition %s -> %s: %s", old_state.c_str(), new_state.c_str(),
               reason.c_str());
   state_ = next_state;
   state_enter_time_ = now();
@@ -348,6 +365,23 @@ bool FSMNode::px4Armed() const {
 bool FSMNode::offboardState() const {
   return state_ == State::OFFBOARD_PREPARE || state_ == State::OFFBOARD_REQUESTED ||
          state_ == State::OFFBOARD_ACTIVE;
+}
+
+log_style::Color FSMNode::stateLogColor(State state) const {
+  switch (state) {
+  case State::WAIT_FOR_PX4:
+  case State::STANDBY:
+    return log_style::Color::kYellow;
+  case State::OFFBOARD_PREPARE:
+  case State::OFFBOARD_REQUESTED:
+    return log_style::Color::kCyan;
+  case State::OFFBOARD_ACTIVE:
+    return log_style::Color::kGreen;
+  case State::MANUAL_OVERRIDE:
+  case State::FAILSAFE:
+    return log_style::Color::kRed;
+  }
+  return log_style::Color::kGray;
 }
 
 const char* FSMNode::stateName(State state) const {

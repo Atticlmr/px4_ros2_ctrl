@@ -43,6 +43,7 @@
 #include <px4_msgs/msg/vehicle_thrust_setpoint.hpp>
 
 #include "px4_ros2_ctrl/controller_output.h"
+#include "px4_ros2_ctrl/log_style.h"
 #include "px4_ros2_ctrl/px4_output_adapter.h"
 
 namespace px4_ros2_ctrl {
@@ -91,6 +92,7 @@ private:
   bool manual_override_latched_ = false;
   bool arm_on_start_ = false;
   bool land_on_failsafe_ = false;
+  bool color_logs_ = false;
 
   rclcpp::Time last_control_mode_time_;
   rclcpp::Time last_local_position_time_;
@@ -128,6 +130,7 @@ private:
   bool px4InManualMode() const;
   bool px4Armed() const;
   bool offboardState() const;
+  log_style::Color stateLogColor(State state) const;
   const char* stateName(State state) const;
 };
 

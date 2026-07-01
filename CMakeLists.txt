@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.18)
 project(px4_ros2_ctrl)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -8,9 +8,9 @@ if(NOT CMAKE_C_STANDARD)
 	set(CMAKE_C_STANDARD 99)
 endif()
 
-# Default to C++14
+# Default to C++17
 if(NOT CMAKE_CXX_STANDARD)
-	set(CMAKE_CXX_STANDARD 14)
+	set(CMAKE_CXX_STANDARD 17)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -30,6 +30,7 @@ find_package(rclpy REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(Threads REQUIRED)
 find_package(ONNXRuntime REQUIRED)
+get_filename_component(ONNXRUNTIME_LIBRARY_DIR "${ONNXRuntime_LIBRARY}" DIRECTORY)
 
 #################
 # Setup targets #
@@ -48,6 +49,12 @@ target_include_directories(frame_transforms PUBLIC
 add_library(px4_output_adapter SHARED src/lib/px4_output_adapter.cpp)
 ament_target_dependencies(px4_output_adapter rclcpp px4_msgs)
 target_include_directories(px4_output_adapter PUBLIC
+	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+	$<INSTALL_INTERFACE:include>
+)
+
+add_library(log_style SHARED src/lib/log_style.cpp)
+target_include_directories(log_style PUBLIC
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 	$<INSTALL_INTERFACE:include>
 )
@@ -81,7 +88,7 @@ install(TARGETS offboard_control_srv DESTINATION lib/${PROJECT_NAME})
 # fsm/fsm_node
 add_executable(fsm_node src/fsm/fsm_node.cpp)
 ament_target_dependencies(fsm_node rclcpp px4_msgs std_srvs)
-target_link_libraries(fsm_node px4_output_adapter)
+target_link_libraries(fsm_node px4_output_adapter log_style)
 install(TARGETS fsm_node DESTINATION lib/${PROJECT_NAME})
 
 # position controller
@@ -101,8 +108,8 @@ target_compile_features(rl_thrust_controller PRIVATE cxx_std_17)
 ament_target_dependencies(rl_thrust_controller rclcpp px4_msgs)
 target_link_libraries(rl_thrust_controller ONNXRuntime::onnxruntime)
 set_target_properties(rl_thrust_controller PROPERTIES
-	BUILD_RPATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime/lib"
-	INSTALL_RPATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime/lib"
+	BUILD_RPATH "${ONNXRUNTIME_LIBRARY_DIR}"
+	INSTALL_RPATH "${ONNXRUNTIME_LIBRARY_DIR}"
 )
 install(TARGETS rl_thrust_controller DESTINATION lib/${PROJECT_NAME})
 
@@ -122,7 +129,7 @@ ament_export_dependencies(ament_cmake rclcpp rosidl_default_runtime eigen3_cmake
 ament_export_targets(export_frame_transforms HAS_LIBRARY_TARGET)
 
 ament_export_include_directories(include)
-ament_export_libraries(frame_transforms px4_output_adapter)
+ament_export_libraries(frame_transforms px4_output_adapter log_style)
 
 # Install header files
 install(DIRECTORY include/${PROJECT_NAME}/ DESTINATION include/${PROJECT_NAME})
@@ -136,6 +143,13 @@ install(TARGETS frame_transforms
 )
 
 install(TARGETS px4_output_adapter
+	ARCHIVE DESTINATION lib
+	LIBRARY DESTINATION lib
+	RUNTIME DESTINATION bin
+	INCLUDES DESTINATION include
+)
+
+install(TARGETS log_style
 	ARCHIVE DESTINATION lib
 	LIBRARY DESTINATION lib
 	RUNTIME DESTINATION bin
